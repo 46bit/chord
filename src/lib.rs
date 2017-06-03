@@ -12,24 +12,19 @@ extern crate rand;
 extern crate tarpc;
 
 use std::io;
-use std::collections::HashMap;
-use rand::{Rng, Rand, StdRng};
-use std::sync::{mpsc, Arc, RwLock};
-use std::thread;
-use tarpc::sync::{client, server};
-use tarpc::sync::client::ClientExt;
-use tarpc::util::Never;
-use std::fmt::Debug;
-use std::net::SocketAddr;
-use std::str::FromStr;
 
-mod rpc;
+//mod rpc;
 mod node;
-mod resolver;
+//mod resolver;
 
-pub use rpc::*;
+//pub use rpc::*;
 pub use node::*;
-pub use resolver::*;
+//pub use resolver::*;
+
+pub type Key = [u32; 5];
+
+/// List of node IDs, representing the hops from the request node to the target node.
+//pub type Route = Vec<Key>;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Definition {

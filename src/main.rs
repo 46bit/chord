@@ -100,7 +100,10 @@ fn main() {
         hopcount += 1;
         if hopcount % 1000 == 0 {
             print!("a");
-            io::stdout().flush().ok().expect("Could not flush stdout");
+            io::stdout()
+                .flush()
+                .ok()
+                .expect("Could not flush stdout");
         }
         let mut current_node = &node_clients[&first_id];
         assert!(current_node.set(key, definition.clone()).unwrap());

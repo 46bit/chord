@@ -23,69 +23,69 @@ service! {
 
 #[derive(Clone)]
 pub struct ChordServer {
-    resolver: Arc<RwLock<Resolver<Definition>>>,
+    node: Arc<RwLock<Node<Definition>>>,
 }
 
 impl ChordServer {
-    pub fn new(resolver: Resolver<Definition>) -> ChordServer {
-        ChordServer { resolver: Arc::new(RwLock::new(resolver)) }
+    pub fn new(node: Node<Definition>) -> ChordServer {
+        ChordServer { node: Arc::new(RwLock::new(node)) }
     }
 }
 
 impl SyncService for ChordServer {
     fn meta(&self) -> Result<(NodeId, Option<NodeId>, Option<NodeId>), Never> {
-        let mut resolver = self.resolver
-            .write()
+        let node = self.node
+            .read()
             .expect("Could not acquire resolver.");
-        Ok((resolver.node.id, resolver.node.predecessor_id, resolver.node.successor_id))
+        Ok((node.id, node.predecessor_id, node.successor_id))
     }
 
     fn ping(&self) -> Result<String, Never> {
-        let mut resolver = self.resolver
-            .write()
+        let node = self.node
+            .read()
             .expect("Could not acquire resolver.");
-        Ok(format!("PONG from {:?}", resolver.node.id))
+        Ok(format!("PONG from {:?}", node.id))
     }
 
     fn set_next(&self, next_id: NodeId) -> Result<(), Never> {
-        let mut resolver = self.resolver
+        let mut node = self.node
             .write()
             .expect("Could not acquire resolver.");
-        resolver.node.successor_id = Some(next_id);
+        node.successor_id = Some(next_id);
         Ok(())
     }
 
     fn set_prev(&self, prev_id: NodeId) -> Result<(), Never> {
-        let mut resolver = self.resolver
+        let mut node = self.node
             .write()
             .expect("Could not acquire resolver.");
-        resolver.node.predecessor_id = Some(prev_id);
+        node.predecessor_id = Some(prev_id);
         Ok(())
     }
 
     fn exists(&self, key: Key) -> Result<bool, Never> {
-        let mut resolver = self.resolver
-            .write()
+        let node = self.node
+            .read()
             .expect("Could not acquire resolver.");
         Ok(resolver.exists(key))
     }
 
     fn get(&self, key: Key) -> Result<Option<Definition>, Never> {
-        let mut resolver = self.resolver
-            .write()
+        let node = self.node
+            .read()
             .expect("Could not acquire resolver.");
         Ok(resolver.get(key))
     }
 
     fn set(&self, key: Key, value: Definition) -> Result<bool, Never> {
-        let mut resolver = self.resolver
+        let mut node = self.node
             .write()
             .expect("Could not acquire resolver.");
         Ok(resolver.set(key, value))
     }
 
     fn delete(&self, key: Key) -> Result<bool, Never> {
-        let mut resolver = self.resolver
+        let mut node = self.node
             .write()
             .expect("Could not acquire resolver.");
         Ok(resolver.delete(key))
