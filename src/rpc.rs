@@ -34,15 +34,15 @@ impl ChordServer {
 
 impl SyncService for ChordServer {
     fn meta(&self) -> Result<(NodeId, Option<NodeId>, Option<NodeId>), Never> {
-        let resolver = self.resolver
-            .read()
+        let mut resolver = self.resolver
+            .write()
             .expect("Could not acquire resolver.");
         Ok((resolver.node.id, resolver.node.predecessor_id, resolver.node.successor_id))
     }
 
     fn ping(&self) -> Result<String, Never> {
-        let resolver = self.resolver
-            .read()
+        let mut resolver = self.resolver
+            .write()
             .expect("Could not acquire resolver.");
         Ok(format!("PONG from {:?}", resolver.node.id))
     }
@@ -64,15 +64,15 @@ impl SyncService for ChordServer {
     }
 
     fn exists(&self, key: Key) -> Result<bool, Never> {
-        let resolver = self.resolver
-            .read()
+        let mut resolver = self.resolver
+            .write()
             .expect("Could not acquire resolver.");
         Ok(resolver.exists(key))
     }
 
     fn get(&self, key: Key) -> Result<Option<Definition>, Never> {
-        let resolver = self.resolver
-            .read()
+        let mut resolver = self.resolver
+            .write()
             .expect("Could not acquire resolver.");
         Ok(resolver.get(key))
     }

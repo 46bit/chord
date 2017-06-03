@@ -13,6 +13,7 @@ extern crate tarpc;
 extern crate chord;
 
 use std::io;
+use std::io::Write;
 use std::collections::HashMap;
 use rand::{Rng, Rand, StdRng};
 use std::sync::{mpsc, Arc, RwLock};
@@ -42,11 +43,11 @@ use chord::*;
 // }
 
 fn main() {
-    let mut node_clients = vec![];
-    for i in 0..16 {
+    let mut node_clients = HashMap::new();
+    for i in 0..8 {
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
-            let addr: SocketAddr = format!("0.0.0.0:{:?}", 14646 + i).parse().unwrap();
+            let addr: SocketAddr = format!("0.0.0.0:{:?}", 4646 + i).parse().unwrap();
             let node = Node::from(addr);
             let node_id = node.id;
             let resolver = Resolver::new(node);
@@ -59,7 +60,7 @@ fn main() {
         });
         let node_id = rx.recv().unwrap();
         let node_client = SyncClient::connect(node_id.addr, client::Options::default()).unwrap();
-        node_clients.push(node_client);
+        node_clients.insert(node_id, node_client);
     }
 
     // let node_clients: HashMap<_, _> = (0..16)
@@ -67,58 +68,53 @@ fn main() {
     //     .map(|_| node_client(None))
     //     .map(|nc| (nc.id().unwrap(), nc))
     //     .collect();
-    // let mut node_client_ids: Vec<_> = node_clients.keys().cloned().collect();
-    // node_client_ids.sort();
+    let mut node_client_ids: Vec<_> = node_clients.keys().cloned().collect();
+    node_client_ids.sort();
+    println!("{:?}", node_client_ids);
 
-    // for w in node_client_ids.windows(2) {
-    //     if let &[a, b] = w {
-    //         node_clients[&a].set_next(b).unwrap();
-    //         node_clients[&b].set_prev(a).unwrap();
-    //     } else {
-    //         unreachable!();
-    //     }
-    // }
-    // let first_id = node_client_ids[0];
-    // let last_id = node_client_ids.last().unwrap();
-    // node_clients[&first_id].set_prev(*last_id).unwrap();
-    // node_clients[last_id].set_next(first_id).unwrap();
+    for w in node_client_ids.windows(2) {
+        if let &[a, b] = w {
+            node_clients[&a].set_next(b).unwrap();
+            node_clients[&b].set_prev(a).unwrap();
+        } else {
+            unreachable!();
+        }
+    }
+    let first_id = node_client_ids[0];
+    let last_id = node_client_ids.last().unwrap();
+    node_clients[&first_id].set_prev(*last_id).unwrap();
+    node_clients[last_id].set_next(first_id).unwrap();
 
-    // for node_client in node_clients.values() {
-    //     match node_client.about() {
-    //         Ok(s) => println!("{:?}", s),
-    //         Err(e) => println!("{:?}", e),
-    //     }
-    // }
+    for node_client in node_clients.values() {
+        match node_client.meta() {
+            Ok(s) => println!("{:?}", s),
+            Err(e) => println!("{:?}", e),
+        }
+    }
 
-    // let definitions = definitions_from_stdin();
-    // let definition_items: Vec<Item<Definition>> = definitions.into_iter().map(Item::from).collect();
-    // println!("3");
+    let definitions = definitions_from_stdin();
+    println!("3");
 
-    // let mut hopcount = 0;
-    // for definition_item in definition_items.clone() {
-    //     let mut current_node = &node_clients[&first_id];
-    //     let mut item_hopcount = 0;
-    //     loop {
-    //         hopcount += 1;
-    //         item_hopcount += 1;
-    //         match current_node
-    //                   .set(definition_item.key, definition_item.value.clone())
-    //                   .unwrap() {
-    //             Lookup::Found(key, Some(s)) => {
-    //                 //assert_eq!(s, definition_item.value);
-    //                 break;
-    //             }
-    //             Lookup::Found(key, None) => {
-    //                 unreachable!();
-    //             }
-    //             Lookup::NextHop(id) => {
-    //                 current_node = &node_clients[&id];
-    //             }
-    //         }
-    //     }
-    //     //println!("{:?} {:?} {:?}", item_hopcount, definition_item.key, current_node.id().unwrap());
-    // }
-    // println!("4 {:?} {:?}",
-    //          hopcount,
-    //          (hopcount as f64) / (definition_items.len() as f64));
+    let mut hopcount = 0;
+    for (key, definition) in definitions.clone() {
+        hopcount += 1;
+        if hopcount % 1000 == 0 {
+            print!("a");
+            io::stdout().flush().ok().expect("Could not flush stdout");
+        }
+        let mut current_node = &node_clients[&first_id];
+        assert!(current_node.set(key, definition.clone()).unwrap());
+        // match current_node.get(key).unwrap() {
+        //     Some(s) => {
+        //         assert_eq!(s, definition);
+        //     }
+        //     None => {
+        //         unreachable!();
+        //     }
+        // }
+        //println!("{:?} {:?} {:?}", item_hopcount, definition_item.key, current_node.id().unwrap());
+    }
+    println!("4 {:?} {:?}",
+             hopcount,
+             (hopcount as f64) / (definitions.len() as f64));
 }

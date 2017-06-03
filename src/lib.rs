@@ -69,7 +69,7 @@ impl From<Definition> for (Key, Definition) {
     }
 }
 
-fn definitions_from_stdin() -> Vec<(Key, Definition)> {
+pub fn definitions_from_stdin() -> Vec<(Key, Definition)> {
     let mut rdr = csv::Reader::from_reader(io::stdin());
     let des: csv::DeserializeRecordsIter<_, Definition> = rdr.deserialize();
 

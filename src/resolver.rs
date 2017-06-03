@@ -1,7 +1,7 @@
 use std::io;
 use std::collections::HashMap;
 use rand::{Rng, Rand, StdRng};
-use std::sync::{mpsc, Arc, RwLock};
+use std::sync::{mpsc, Arc, Mutex, RwLock};
 use std::thread;
 use tarpc::sync::{client, server};
 use tarpc::sync::client::ClientExt;
@@ -15,34 +15,42 @@ pub struct Resolver<T>
     where T: Clone + Debug
 {
     pub node: Node<T>,
+    pub successor_client: Option<Arc<Mutex<SyncClient>>>,
 }
 
 impl Resolver<Definition> {
     pub fn new(node: Node<Definition>) -> Resolver<Definition> {
-        Resolver { node }
+        Resolver {
+            node: node,
+            successor_client: None,
+        }
     }
 
-    pub fn exists(&self, key: Key) -> bool {
+    pub fn exists(&mut self, key: Key) -> bool {
         if self.node.owns(key) {
             self.node.exists(key)
         } else {
-            self.node
-                .successor_id
+            self.successor_client();
+            self.successor_client
+                .as_mut()
                 .unwrap()
-                .client()
+                .lock()
+                .unwrap()
                 .exists(key)
                 .unwrap()
         }
     }
 
-    pub fn get(&self, key: Key) -> Option<Definition> {
+    pub fn get(&mut self, key: Key) -> Option<Definition> {
         if self.node.owns(key) {
             self.node.get(key).cloned()
         } else {
-            self.node
-                .successor_id
+            self.successor_client();
+            self.successor_client
+                .as_mut()
                 .unwrap()
-                .client()
+                .lock()
+                .unwrap()
                 .get(key)
                 .unwrap()
         }
@@ -52,10 +60,12 @@ impl Resolver<Definition> {
         if self.node.owns(key) {
             self.node.set(key, value)
         } else {
-            self.node
-                .successor_id
+            self.successor_client();
+            self.successor_client
+                .as_mut()
                 .unwrap()
-                .client()
+                .lock()
+                .unwrap()
                 .set(key, value)
                 .unwrap()
         }
@@ -65,12 +75,21 @@ impl Resolver<Definition> {
         if self.node.owns(key) {
             self.node.delete(key)
         } else {
-            self.node
-                .successor_id
+            self.successor_client();
+            self.successor_client
+                .as_mut()
                 .unwrap()
-                .client()
+                .lock()
+                .unwrap()
                 .delete(key)
                 .unwrap()
+        }
+    }
+
+    fn successor_client(&mut self) {
+        if self.successor_client.is_none() {
+            self.successor_client =
+                Some(Arc::new(Mutex::new(self.node.successor_id.unwrap().client())));
         }
     }
 }
