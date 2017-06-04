@@ -4,54 +4,30 @@
 #![feature(slice_patterns)]
 
 extern crate csv;
-#[macro_use]
-extern crate serde_derive;
 extern crate sha1;
 extern crate rand;
-#[macro_use]
 extern crate tarpc;
 extern crate chord;
 
 use std::io;
 use std::io::Write;
 use std::collections::HashMap;
-use rand::{Rng, Rand, StdRng};
-use std::sync::{mpsc, Arc, RwLock};
+use std::sync::mpsc;
 use std::thread;
 use tarpc::sync::{client, server};
 use tarpc::sync::client::ClientExt;
-use tarpc::util::Never;
 use std::net::SocketAddr;
 use chord::*;
 
-// fn node_client(pred_id: Option<Key>) -> SyncClient {
-//     let (tx, rx) = mpsc::channel();
-//     thread::spawn(move || {
-//         let mut rng = StdRng::new().unwrap();
-//         let mut node = Node::rand(&mut rng);
-//         if let Some(pred_id) = pred_id {
-//             node.predecessor_id = Some(pred_id);
-//         }
-//         let chord_server: ChordServer = ChordServer { node: Arc::new(RwLock::new(node)) };
-//         let handle = chord_server
-//             .listen("localhost:0", server::Options::default())
-//             .unwrap();
-//         tx.send(handle.addr()).unwrap();
-//         handle.run();
-//     });
-//     SyncClient::connect(rx.recv().unwrap(), client::Options::default()).unwrap()
-// }
-
 fn main() {
     let mut node_clients = HashMap::new();
-    for i in 0..8 {
+    for i in 0..256 {
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
             let addr: SocketAddr = format!("0.0.0.0:{:?}", 4646 + i).parse().unwrap();
-            let node = Node::from(addr);
-            let node_id = node.id;
-            let resolver = Resolver::new(node);
-            let chord_server = ChordServer::new(resolver);
+            let node_id = Id::from(addr);
+            let node = Node::new(node_id);
+            let chord_server = ChordServer::new(node);
             let handle = chord_server
                 .listen(addr, server::Options::default())
                 .unwrap();
@@ -63,11 +39,6 @@ fn main() {
         node_clients.insert(node_id, node_client);
     }
 
-    // let node_clients: HashMap<_, _> = (0..16)
-    //     .into_iter()
-    //     .map(|_| node_client(None))
-    //     .map(|nc| (nc.id().unwrap(), nc))
-    //     .collect();
     let mut node_client_ids: Vec<_> = node_clients.keys().cloned().collect();
     node_client_ids.sort();
     println!("{:?}", node_client_ids);
@@ -105,7 +76,7 @@ fn main() {
                 .ok()
                 .expect("Could not flush stdout");
         }
-        let mut current_node = &node_clients[&first_id];
+        let current_node = &node_clients[&first_id];
         assert!(current_node.set(key, definition.clone()).unwrap());
         // match current_node.get(key).unwrap() {
         //     Some(s) => {

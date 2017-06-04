@@ -13,15 +13,13 @@ extern crate tarpc;
 
 use std::io;
 
-//mod rpc;
+mod rpc;
 mod node;
 //mod resolver;
 
-//pub use rpc::*;
+pub use rpc::*;
 pub use node::*;
 //pub use resolver::*;
-
-pub type Key = [u32; 5];
 
 /// List of node IDs, representing the hops from the request node to the target node.
 //pub type Route = Vec<Key>;

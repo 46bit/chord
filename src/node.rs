@@ -1,8 +1,6 @@
 use std::collections::HashMap;
-use rand::{Rng, Rand};
 use std::fmt::Debug;
 use std::hash::Hash;
-use super::*;
 
 pub trait NodeId: Copy + Debug {
     type Key: Eq + Ord + Hash + Copy + Debug;
@@ -21,7 +19,7 @@ pub struct Node<I, T>
     pub items: HashMap<I::Key, T>,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub struct NodeMeta<I>
     where I: NodeId
 {
