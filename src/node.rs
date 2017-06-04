@@ -24,8 +24,16 @@ pub struct NodeMeta<I>
     where I: NodeId
 {
     pub id: I,
-    pub successor_id: Option<I>,
-    pub predecessor_id: Option<I>,
+    pub relations: Option<NodeRelations<I>>,
+    pub itemcount: usize,
+}
+
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+pub struct NodeRelations<I>
+    where I: NodeId
+{
+    pub predecessor_id: I,
+    pub successor_id: I,
 }
 
 impl<I> NodeMeta<I>
@@ -35,7 +43,13 @@ impl<I> NodeMeta<I>
         // The lowest-keyed node is responsible for keys greater than the highest-keyed
         // node and for those less than itself.
         // Otherwise a node is merely responsible for keys greater than its predecessor.
-        let predecessor_key = self.predecessor_id.expect("No predecessor set.").key();
+
+        if self.relations.is_none() {
+            return true;
+        }
+
+        let relations = self.relations.unwrap();
+        let predecessor_key = relations.predecessor_id.key();
         if predecessor_key > self.id.key() {
             key > predecessor_key || key <= self.id.key()
         } else {
@@ -44,7 +58,8 @@ impl<I> NodeMeta<I>
     }
 
     pub fn next(&self, _: I::Key) -> I {
-        self.successor_id.expect("No successor set.")
+        let relations = self.relations.expect("No relations set.");
+        relations.successor_id
     }
 }
 
@@ -56,11 +71,18 @@ impl<I, T> Node<I, T>
         Node {
             meta: NodeMeta {
                 id: id,
-                successor_id: None,
-                predecessor_id: None,
+                relations: None,
+                itemcount: 0,
             },
             items: HashMap::new(),
         }
+    }
+
+    pub fn assign_relations(&mut self, predecessor_id: I, successor_id: I) {
+        self.meta.relations = Some(NodeRelations {
+                                       predecessor_id: predecessor_id,
+                                       successor_id: successor_id,
+                                   });
     }
 
     pub fn exists(&self, key: I::Key) -> NodeResult<bool, I> {
@@ -81,7 +103,9 @@ impl<I, T> Node<I, T>
 
     pub fn set(&mut self, key: I::Key, value: T) -> NodeResult<(), I> {
         if self.meta.owns(key) {
-            self.items.insert(key, value);
+            if self.items.insert(key, value).is_none() {
+                self.meta.itemcount += 1;
+            }
             Ok(())
         } else {
             Err(self.meta.next(key))
@@ -90,7 +114,12 @@ impl<I, T> Node<I, T>
 
     pub fn delete(&mut self, key: I::Key) -> NodeResult<bool, I> {
         if self.meta.owns(key) {
-            Ok(self.items.remove(&key).is_some())
+            if self.items.remove(&key).is_some() {
+                self.meta.itemcount -= 1;
+                Ok(true)
+            } else {
+                Ok(false)
+            }
         } else {
             Err(self.meta.next(key))
         }

@@ -1,4 +1,4 @@
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock, Mutex};
 use std::net::SocketAddr;
 use std::cmp::Ordering;
 use tarpc::sync::client;
@@ -53,9 +53,7 @@ impl From<SocketAddr> for Id {
 
 service! {
     rpc meta() -> NodeMeta<Id>;
-    rpc ping() -> String;
-    rpc set_next(key: Id) -> ();
-    rpc set_prev(key: Id) -> ();
+    rpc assign_relations(predecessor_id: Id, successor_id: Id) -> String;
     rpc exists(key: Key) -> bool;
     rpc get(key: Key) -> Option<Definition>;
     rpc set(key: Key, value: Definition) -> bool;
@@ -65,70 +63,76 @@ service! {
 #[derive(Clone)]
 pub struct ChordServer {
     node: Arc<RwLock<Node<Id, Definition>>>,
+    next: Arc<Mutex<Option<SyncClient>>>,
 }
 
 impl ChordServer {
     pub fn new(node: Node<Id, Definition>) -> ChordServer {
-        ChordServer { node: Arc::new(RwLock::new(node)) }
-    }
-
-    fn client(&self, next_id: Id) -> SyncClient {
-        SyncClient::connect(next_id.addr, client::Options::default()).unwrap()
+        let node = Arc::new(RwLock::new(node));
+        let next = Arc::new(Mutex::new(None));
+        ChordServer { node, next }
     }
 }
 
 impl SyncService for ChordServer {
     fn meta(&self) -> Result<NodeMeta<Id>, Never> {
-        let node = self.node.read().expect("Could not acquire resolver.");
+        let node = self.node.read().expect("Could not acquire node.");
         Ok(node.meta)
     }
 
-    fn ping(&self) -> Result<String, Never> {
-        let node = self.node.read().expect("Could not acquire resolver.");
-        Ok(format!("PONG from {:?}", node.meta.id))
-    }
+    fn assign_relations(&self, predecessor_id: Id, successor_id: Id) -> Result<String, Never> {
+        let mut node = self.node.write().expect("Could not acquire node.");
+        node.assign_relations(predecessor_id, successor_id);
 
-    fn set_next(&self, next_id: Id) -> Result<(), Never> {
-        let mut node = self.node.write().expect("Could not acquire resolver.");
-        node.meta.successor_id = Some(next_id);
-        Ok(())
-    }
-
-    fn set_prev(&self, prev_id: Id) -> Result<(), Never> {
-        let mut node = self.node.write().expect("Could not acquire resolver.");
-        node.meta.predecessor_id = Some(prev_id);
-        Ok(())
+        let mut next = self.next.lock().expect("Could not acquire next.");
+        *next = Some(SyncClient::connect(successor_id.addr, client::Options::default()).unwrap());
+        Ok("is okay".to_string())
     }
 
     fn exists(&self, key: Key) -> Result<bool, Never> {
-        let node = self.node.read().expect("Could not acquire resolver.");
+        let node = self.node.read().expect("Could not acquire node.");
         match node.exists(key) {
             Ok(answer) => Ok(answer),
-            Err(next_id) => Ok(self.client(next_id).exists(key).unwrap()),
+            Err(next_id) => {
+                let n = self.next.lock().expect("Could not acquire next.");
+                Ok(n.as_ref().expect("No next set.").exists(key).unwrap())
+            }
         }
     }
 
     fn get(&self, key: Key) -> Result<Option<Definition>, Never> {
-        let node = self.node.read().expect("Could not acquire resolver.");
+        let node = self.node.read().expect("Could not acquire node.");
         match node.get(key) {
             Ok(answer) => Ok(answer.cloned()),
-            Err(next_id) => Ok(self.client(next_id).get(key).unwrap()),
+            Err(next_id) => {
+                let n = self.next.lock().expect("Could not acquire next.");
+                Ok(n.as_ref().expect("No next set.").get(key).unwrap())
+            }
         }
     }
 
     fn set(&self, key: Key, value: Definition) -> Result<bool, Never> {
-        let mut node = self.node.write().expect("Could not acquire resolver.");
+        let mut node = self.node.write().expect("Could not acquire node.");
         match node.set(key, value.clone()) {
             Ok(()) => Ok(true),
-            Err(next_id) => Ok(self.client(next_id).set(key, value).unwrap()),
+            Err(next_id) => {
+                let n = self.next.lock().expect("Could not acquire next.");
+                Ok(n.as_ref()
+                       .expect("No next set.")
+                       .set(key, value)
+                       .unwrap())
+            }
         }
     }
 
     fn delete(&self, key: Key) -> Result<bool, Never> {
-        let mut node = self.node.write().expect("Could not acquire resolver.");
+        let mut node = self.node.write().expect("Could not acquire node.");
         match node.delete(key) {
             Ok(answer) => Ok(answer),
-            Err(next_id) => Ok(self.client(next_id).delete(key).unwrap()),
+            Err(next_id) => {
+                let n = self.next.lock().expect("Could not acquire next.");
+                Ok(n.as_ref().expect("No next set.").delete(key).unwrap())
+            }
         }
     }
 }

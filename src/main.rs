@@ -21,7 +21,7 @@ use chord::*;
 
 fn main() {
     let mut node_clients = HashMap::new();
-    for i in 0..256 {
+    for i in 0..8 {
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
             let addr: SocketAddr = format!("0.0.0.0:{:?}", 4646 + i).parse().unwrap();
@@ -43,19 +43,31 @@ fn main() {
     node_client_ids.sort();
     println!("{:?}", node_client_ids);
 
+    let mut pred_ids: HashMap<Id, Id> = HashMap::new();
+    let mut next_ids: HashMap<Id, Id> = HashMap::new();
     for w in node_client_ids.windows(2) {
         if let &[a, b] = w {
-            node_clients[&a].set_next(b).unwrap();
-            node_clients[&b].set_prev(a).unwrap();
+            next_ids.insert(a, b);
+            pred_ids.insert(b, a);
         } else {
             unreachable!();
         }
     }
     let first_id = node_client_ids[0];
-    let last_id = node_client_ids.last().unwrap();
-    node_clients[&first_id].set_prev(*last_id).unwrap();
-    node_clients[last_id].set_next(first_id).unwrap();
+    let last_id = *node_client_ids.last().unwrap();
+    next_ids.insert(last_id, first_id);
+    pred_ids.insert(first_id, last_id);
 
+    for node_client_id in node_client_ids {
+        let next_id: Id = next_ids[&node_client_id];
+        let pred_id: Id = pred_ids[&node_client_id];
+        println!("2.6");
+        println!("{:?}",
+                 node_clients[&node_client_id].assign_relations(pred_id, next_id));
+        println!("2.7");
+    }
+
+    println!("2.8");
     for node_client in node_clients.values() {
         match node_client.meta() {
             Ok(s) => println!("{:?}", s),
@@ -63,6 +75,7 @@ fn main() {
         }
     }
 
+    println!("2.9");
     let definitions = definitions_from_stdin();
     println!("3");
 
@@ -75,6 +88,12 @@ fn main() {
                 .flush()
                 .ok()
                 .expect("Could not flush stdout");
+            for node_client in node_clients.values() {
+                match node_client.meta() {
+                    Ok(s) => println!("{:?}", s),
+                    Err(e) => println!("{:?}", e),
+                }
+            }
         }
         let current_node = &node_clients[&first_id];
         assert!(current_node.set(key, definition.clone()).unwrap());
