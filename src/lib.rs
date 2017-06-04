@@ -25,7 +25,6 @@ pub type Key = [u32; 5];
 
 /// List of node IDs, representing the hops from the request node to the target node.
 //pub type Route = Vec<Key>;
-
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Definition {
     #[serde(rename = "defid")]
