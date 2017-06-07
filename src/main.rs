@@ -12,30 +12,36 @@ extern crate chord;
 use std::io;
 use std::io::Write;
 use std::collections::HashMap;
-use std::sync::mpsc;
+use std::sync::mpsc as stdmpsc;
 use std::thread;
-use tarpc::sync::{client, server};
-use tarpc::sync::client::ClientExt;
 use std::net::SocketAddr;
+use tarpc::future::{client, server};
+use tarpc::future::client::ClientExt;
+use tarpc::futures::sync::mpsc;
+use tarpc::tokio_core::reactor;
 use chord::*;
 
 fn main() {
     let mut node_clients = HashMap::new();
     for i in 0..8 {
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = stdmpsc::channel();
         thread::spawn(move || {
+            let mut reactor = reactor::Core::new().unwrap();
             let addr: SocketAddr = format!("0.0.0.0:{:?}", 4646 + i).parse().unwrap();
             let node_id = Id::from(addr);
+            let (query_tx, query_rx) = mpsc::channel(5);
+            let (remote_tx, remote_rx) = mpsc::channel(5);
             let node = Node::new(node_id);
-            let chord_server = ChordServer::new(node);
-            let handle = chord_server
-                .listen(addr, server::Options::default())
+            let query_server = QueryEngine::new(node, remote_tx);
+            let chord_server = ChordServer::new(query_tx);
+            let (handle, server) = chord_server
+                .listen(addr, &reactor.handle(), server::Options::default())
                 .unwrap();
             tx.send(node_id).unwrap();
-            handle.run();
+            reactor.handle().spawn(server);
         });
         let node_id = rx.recv().unwrap();
-        let node_client = SyncClient::connect(node_id.addr, client::Options::default()).unwrap();
+        let node_client = FutureClient::connect(node_id.addr, client::Options::default()).unwrap();
         node_clients.insert(node_id, node_client);
     }
 

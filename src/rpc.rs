@@ -1,9 +1,7 @@
-use std::sync::{Arc, RwLock, Mutex};
 use std::net::SocketAddr;
 use std::cmp::Ordering;
-use tarpc::sync::client;
-use tarpc::sync::client::ClientExt;
-use tarpc::util::Never;
+use futures::{Future, Sink};
+use futures::sync::{mpsc, oneshot};
 use super::*;
 
 pub type Key = [u32; 5];
@@ -52,87 +50,87 @@ impl From<SocketAddr> for Id {
 }
 
 service! {
-    rpc meta() -> NodeMeta<Id>;
-    rpc assign_relations(predecessor_id: Id, successor_id: Id) -> String;
-    rpc exists(key: Key) -> bool;
-    rpc get(key: Key) -> Option<Definition>;
-    rpc set(key: Key, value: Definition) -> bool;
-    rpc delete(key: Key) -> bool;
+    rpc meta() -> NodeMeta<Id> | bool;
+    rpc owner(key: Key) -> Id | bool;
+    rpc precede(predecessor_id: Id) -> PrecedeReply<Id, Definition> | bool;
+    rpc exists(key: Key) -> bool | bool;
+    rpc get(key: Key) -> Option<Definition> | bool;
+    rpc set(key: Key, value: Definition) -> () | bool;
+    rpc delete(key: Key) -> bool | bool;
 }
 
 #[derive(Clone)]
 pub struct ChordServer {
-    node: Arc<RwLock<Node<Id, Definition>>>,
-    next: Arc<Mutex<Option<SyncClient>>>,
+    query_tx: mpsc::Sender<QueryForReply<Id, Definition>>,
 }
 
 impl ChordServer {
-    pub fn new(node: Node<Id, Definition>) -> ChordServer {
-        let node = Arc::new(RwLock::new(node));
-        let next = Arc::new(Mutex::new(None));
-        ChordServer { node, next }
+    pub fn new(query_tx: mpsc::Sender<QueryForReply<Id, Definition>>) -> ChordServer {
+        ChordServer { query_tx }
+    }
+
+    fn query<R>(&self,
+                query: QueryForReply<Id, Definition>,
+                reply_rx: oneshot::Receiver<R>)
+                -> Box<Future<Item = R, Error = bool>>
+        where R: Send + 'static
+    {
+        self.query_tx
+            .clone()
+            .send(query)
+            .map_err(|_| false)
+            .and_then(|_| reply_rx.map_err(|_| false))
+            .boxed()
     }
 }
 
-impl SyncService for ChordServer {
-    fn meta(&self) -> Result<NodeMeta<Id>, Never> {
-        let node = self.node.read().expect("Could not acquire node.");
-        Ok(node.meta)
+impl FutureService for ChordServer {
+    type MetaFut = Box<Future<Item = NodeMeta<Id>, Error = bool>>;
+    type OwnerFut = Box<Future<Item = Id, Error = bool>>;
+    type PrecedeFut = Box<Future<Item = PrecedeReply<Id, Definition>, Error = bool>>;
+    type ExistsFut = Box<Future<Item = bool, Error = bool>>;
+    type GetFut = Box<Future<Item = Option<Definition>, Error = bool>>;
+    type SetFut = Box<Future<Item = (), Error = bool>>;
+    type DeleteFut = Box<Future<Item = bool, Error = bool>>;
+
+    fn meta(&self) -> Self::MetaFut {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.query(QueryForReply::Meta(MetaQuery, reply_tx), reply_rx)
     }
 
-    fn assign_relations(&self, predecessor_id: Id, successor_id: Id) -> Result<String, Never> {
-        let mut node = self.node.write().expect("Could not acquire node.");
-        node.assign_relations(predecessor_id, successor_id);
-
-        let mut next = self.next.lock().expect("Could not acquire next.");
-        *next = Some(SyncClient::connect(successor_id.addr, client::Options::default()).unwrap());
-        Ok("is okay".to_string())
+    fn owner(&self, key: Key) -> Self::OwnerFut {
+        let query = OwnerQuery { key };
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.query(QueryForReply::Owner(query, reply_tx), reply_rx)
     }
 
-    fn exists(&self, key: Key) -> Result<bool, Never> {
-        let node = self.node.read().expect("Could not acquire node.");
-        match node.exists(key) {
-            Ok(answer) => Ok(answer),
-            Err(next_id) => {
-                let n = self.next.lock().expect("Could not acquire next.");
-                Ok(n.as_ref().expect("No next set.").exists(key).unwrap())
-            }
-        }
+    fn precede(&self, id: Id) -> Self::PrecedeFut {
+        let query = PrecedeQuery { id };
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.query(QueryForReply::Precede(query, reply_tx), reply_rx)
     }
 
-    fn get(&self, key: Key) -> Result<Option<Definition>, Never> {
-        let node = self.node.read().expect("Could not acquire node.");
-        match node.get(key) {
-            Ok(answer) => Ok(answer.cloned()),
-            Err(next_id) => {
-                let n = self.next.lock().expect("Could not acquire next.");
-                Ok(n.as_ref().expect("No next set.").get(key).unwrap())
-            }
-        }
+    fn exists(&self, key: Key) -> Self::ExistsFut {
+        let query = ExistsQuery { key };
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.query(QueryForReply::Exists(query, reply_tx), reply_rx)
     }
 
-    fn set(&self, key: Key, value: Definition) -> Result<bool, Never> {
-        let mut node = self.node.write().expect("Could not acquire node.");
-        match node.set(key, value.clone()) {
-            Ok(()) => Ok(true),
-            Err(next_id) => {
-                let n = self.next.lock().expect("Could not acquire next.");
-                Ok(n.as_ref()
-                       .expect("No next set.")
-                       .set(key, value)
-                       .unwrap())
-            }
-        }
+    fn get(&self, key: Key) -> Self::GetFut {
+        let query = GetQuery { key };
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.query(QueryForReply::Get(query, reply_tx), reply_rx)
     }
 
-    fn delete(&self, key: Key) -> Result<bool, Never> {
-        let mut node = self.node.write().expect("Could not acquire node.");
-        match node.delete(key) {
-            Ok(answer) => Ok(answer),
-            Err(next_id) => {
-                let n = self.next.lock().expect("Could not acquire next.");
-                Ok(n.as_ref().expect("No next set.").delete(key).unwrap())
-            }
-        }
+    fn set(&self, key: Key, value: Definition) -> Self::SetFut {
+        let query = SetQuery { key, value };
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.query(QueryForReply::Set(query, reply_tx), reply_rx)
+    }
+
+    fn delete(&self, key: Key) -> Self::DeleteFut {
+        let query = DeleteQuery { key };
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.query(QueryForReply::Delete(query, reply_tx), reply_rx)
     }
 }

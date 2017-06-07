@@ -10,16 +10,19 @@ extern crate sha1;
 extern crate rand;
 #[macro_use]
 extern crate tarpc;
+extern crate futures;
 
 use std::io;
 
 mod rpc;
 mod node;
-//mod resolver;
+mod query;
+mod query_engine;
 
 pub use rpc::*;
 pub use node::*;
-//pub use resolver::*;
+pub use query::*;
+pub use query_engine::*;
 
 /// List of node IDs, representing the hops from the request node to the target node.
 //pub type Route = Vec<Key>;

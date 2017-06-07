@@ -1,9 +1,11 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::hash::Hash;
+use tarpc::serde::Serialize;
+use tarpc::serde::de::DeserializeOwned;
 
-pub trait NodeId: Copy + Debug {
-    type Key: Eq + Ord + Hash + Copy + Debug;
+pub trait NodeId: Copy + Debug + Send + Serialize {
+    type Key: Eq + Ord + Hash + Copy + Debug + Send + Serialize + DeserializeOwned;
 
     fn key(&self) -> Self::Key;
 }
@@ -13,7 +15,7 @@ pub type NodeResult<T, I> = Result<T, I>;
 #[derive(Clone, Debug)]
 pub struct Node<I, T>
     where I: NodeId,
-          T: Clone + Debug
+          T: Clone + Debug + Send
 {
     pub meta: NodeMeta<I>,
     pub items: HashMap<I::Key, T>,
@@ -65,7 +67,7 @@ impl<I> NodeMeta<I>
 
 impl<I, T> Node<I, T>
     where I: NodeId,
-          T: Clone + Debug
+          T: Clone + Debug + Send
 {
     pub fn new(id: I) -> Node<I, T> {
         Node {
