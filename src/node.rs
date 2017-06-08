@@ -3,6 +3,7 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use tarpc::serde::Serialize;
 use tarpc::serde::de::DeserializeOwned;
+use super::*;
 
 pub trait NodeId: Copy + Debug + Send + Serialize {
     type Key: Eq + Ord + Hash + Copy + Debug + Send + Serialize + DeserializeOwned;
@@ -80,11 +81,12 @@ impl<I, T> Node<I, T>
         }
     }
 
-    pub fn assign_relations(&mut self, predecessor_id: I, successor_id: I) {
+    pub fn apply_precede_reply(&mut self, precede_reply: PrecedeReply<I, T>) {
         self.meta.relations = Some(NodeRelations {
-                                       predecessor_id: predecessor_id,
-                                       successor_id: successor_id,
+                                       predecessor_id: precede_reply.predecessor_id,
+                                       successor_id: precede_reply.successor_id,
                                    });
+        self.items = precede_reply.transfer_items;
     }
 
     pub fn exists(&self, key: I::Key) -> NodeResult<bool, I> {

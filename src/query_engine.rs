@@ -9,71 +9,46 @@ pub struct QueryEngine<I, T>
     where I: NodeId + 'static,
           T: Clone + Debug + Send + 'static
 {
-    local_node: Arc<RwLock<Node<I, T>>>,
-    remote_node_tx: mpsc::Sender<QueryNodeForReply<I, T>>,
+    pub local_node: Arc<RwLock<Node<I, T>>>,
 }
 
 impl<I, T> QueryEngine<I, T>
     where I: NodeId,
           T: Clone + Debug + Send + 'static
 {
-    pub fn new(local_node: Node<I, T>,
-               remote_node_tx: mpsc::Sender<QueryNodeForReply<I, T>>)
-               -> QueryEngine<I, T> {
+    pub fn new(local_node: Node<I, T>) -> QueryEngine<I, T> {
         let local_node = Arc::new(RwLock::new(local_node));
-        QueryEngine {
-            local_node,
-            remote_node_tx,
-        }
+        QueryEngine { local_node }
     }
 
-    pub fn query(&self, query: QueryForReply<I, T>) -> BoxFuture<(), ()> {
-        match query {
-            QueryForReply::Meta(_, reply_tx) => self.meta(reply_tx),
-            QueryForReply::Owner(query, reply_tx) => self.owner(query, reply_tx),
-            QueryForReply::Precede(query, reply_tx) => self.precede(query, reply_tx),
-            QueryForReply::Exists(query, reply_tx) => self.exists(query, reply_tx),
-            QueryForReply::Get(query, reply_tx) => self.get(query, reply_tx),
-            QueryForReply::Set(query, reply_tx) => self.set(query, reply_tx),
-            QueryForReply::Delete(query, reply_tx) => self.delete(query, reply_tx),
-        }
-    }
+    // pub fn query(&self, query: Query<I, T>) -> BoxFuture<(), ()> {
+    //     use Query::*;
+    //     match query {
+    //         Meta => self.meta(),
+    //         Owner(query) => self.owner(query),
+    //         Precede(query) => self.precede(query),
+    //         Exists(query) => self.exists(query),
+    //         Get(query) => self.get(query),
+    //         Set(query) => self.set(query),
+    //         Delete(query) => self.delete(query),
+    //     }
+    // }
 
-    fn meta(&self, reply_tx: oneshot::Sender<NodeMeta<I>>) -> BoxFuture<(), ()> {
+    pub fn meta(&self) -> QueryResult<I, NodeMeta<I>> {
         let local_node = self.local_node.read().expect("Could not acquire node.");
-        reply_tx
-            .send(local_node.meta)
-            .map_err(|_| ())
-            .into_future()
-            .boxed()
+        QueryResult::Answer(local_node.meta)
     }
 
-    fn owner(&self, query: OwnerQuery<I>, reply_tx: oneshot::Sender<I>) -> BoxFuture<(), ()> {
+    pub fn owner(&self, query: OwnerQuery<I>) -> QueryResult<I, I> {
         let local_node = self.local_node.read().expect("Could not acquire node.");
         if local_node.meta.owns(query.key) {
-            reply_tx
-                .send(local_node.meta.id)
-                .map_err(|_| ())
-                .into_future()
-                .boxed()
+            QueryResult::Answer(local_node.meta.id)
         } else {
-            self.remote_node_tx
-                .clone()
-                .send(QueryNodeForReply {
-                          node_id: local_node.meta.next(local_node.meta.id.key()),
-                          query_for_reply: QueryForReply::Owner(query, reply_tx),
-                      })
-                .map_err(|_| ())
-                .into_future()
-                .map(|_| ())
-                .boxed()
+            QueryResult::Node(local_node.meta.next(local_node.meta.id.key()))
         }
     }
 
-    fn precede(&self,
-               query: PrecedeQuery<I>,
-               reply_tx: oneshot::Sender<PrecedeReply<I, T>>)
-               -> BoxFuture<(), ()> {
+    pub fn precede(&self, query: PrecedeQuery<I>) -> QueryResult<I, PrecedeReply<I, T>> {
         let mut local_node = self.local_node
             .write()
             .expect("Could not acquire node.");
@@ -94,133 +69,49 @@ impl<I, T> QueryEngine<I, T>
                                           relations.predecessor_id = query.id;
                                           relations
                                       }));
-            reply_tx
-                .send(PrecedeReply {
-                          predecessor_id: predecessor_id,
-                          successor_id: local_node.meta.id,
-                          transfer_items: local_node.items.clone(),
-                      })
-                .map_err(|_| ())
-                .into_future()
-                .boxed()
+            QueryResult::Answer(PrecedeReply {
+                                    predecessor_id: predecessor_id,
+                                    successor_id: local_node.meta.id,
+                                    transfer_items: local_node.items.clone(),
+                                })
         } else {
-            self.remote_node_tx
-                .clone()
-                .send(QueryNodeForReply {
-                          node_id: local_node.meta.next(local_node.meta.id.key()),
-                          query_for_reply: QueryForReply::Precede(query, reply_tx),
-                      })
-                .map_err(|_| ())
-                .into_future()
-                .map(|_| ())
-                .boxed()
+            QueryResult::Node(local_node.meta.next(local_node.meta.id.key()))
         }
     }
 
-    // fn assign_relations(&self, query: AssignRelationsQuery<I>, reply_tx: oneshot::Sender<()>) {
-    //     let mut node = self.node.write().expect("Could not acquire node.");
-    //     node.assign_relations(predecessor_id, successor_id);
-
-    //     let mut next = self.next.lock().expect("Could not acquire next.");
-    //     *next = Some(FutureClient::connect(successor_id.addr, client::Options::default()).unwrap());
-    //     Ok("is okay".to_string())
-    // }
-
-    fn exists(&self, query: ExistsQuery<I>, reply_tx: oneshot::Sender<bool>) -> BoxFuture<(), ()> {
+    pub fn exists(&self, query: ExistsQuery<I>) -> QueryResult<I, bool> {
         let local_node = self.local_node.read().expect("Could not acquire node.");
         match local_node.exists(query.key) {
-            Ok(answer) => {
-                reply_tx
-                    .send(answer)
-                    .map_err(|_| ())
-                    .into_future()
-                    .boxed()
-            }
-            Err(next_id) => {
-                self.remote_node_tx
-                    .clone()
-                    .send(QueryNodeForReply {
-                              node_id: next_id,
-                              query_for_reply: QueryForReply::Exists(query, reply_tx),
-                          })
-                    .map_err(|_| ())
-                    .into_future()
-                    .map(|_| ())
-                    .boxed()
-            }
+            Ok(answer) => QueryResult::Answer(answer),
+            Err(next_id) => QueryResult::Node(next_id),
         }
     }
 
-    fn get(&self, query: GetQuery<I>, reply_tx: oneshot::Sender<Option<T>>) -> BoxFuture<(), ()> {
+    pub fn get(&self, query: GetQuery<I>) -> QueryResult<I, Option<T>> {
         let local_node = self.local_node.read().expect("Could not acquire node.");
         match local_node.get(query.key) {
-            Ok(answer) => {
-                reply_tx
-                    .send(answer.cloned())
-                    .map_err(|_| ())
-                    .into_future()
-                    .boxed()
-            }
-            Err(next_id) => {
-                self.remote_node_tx
-                    .clone()
-                    .send(QueryNodeForReply {
-                              node_id: next_id,
-                              query_for_reply: QueryForReply::Get(query, reply_tx),
-                          })
-                    .map_err(|_| ())
-                    .into_future()
-                    .map(|_| ())
-                    .boxed()
-            }
+            Ok(answer) => QueryResult::Answer(answer.cloned()),
+            Err(next_id) => QueryResult::Node(next_id),
         }
     }
 
-    fn set(&self, query: SetQuery<I, T>, reply_tx: oneshot::Sender<()>) -> BoxFuture<(), ()> {
+    pub fn set(&self, query: SetQuery<I, T>) -> QueryResult<I, ()> {
         let mut local_node = self.local_node
             .write()
             .expect("Could not acquire node.");
         match local_node.set(query.key, query.value.clone()) {
-            Ok(()) => reply_tx.send(()).map_err(|_| ()).into_future().boxed(),
-            Err(next_id) => {
-                self.remote_node_tx
-                    .clone()
-                    .send(QueryNodeForReply {
-                              node_id: next_id,
-                              query_for_reply: QueryForReply::Set(query, reply_tx),
-                          })
-                    .map_err(|_| ())
-                    .into_future()
-                    .map(|_| ())
-                    .boxed()
-            }
+            Ok(()) => QueryResult::Answer(()),
+            Err(next_id) => QueryResult::Node(next_id),
         }
     }
 
-    fn delete(&self, query: DeleteQuery<I>, reply_tx: oneshot::Sender<bool>) -> BoxFuture<(), ()> {
+    pub fn delete(&self, query: DeleteQuery<I>) -> QueryResult<I, bool> {
         let mut node = self.local_node
             .write()
             .expect("Could not acquire node.");
         match node.delete(query.key) {
-            Ok(answer) => {
-                reply_tx
-                    .send(answer)
-                    .map_err(|_| ())
-                    .into_future()
-                    .boxed()
-            }
-            Err(next_id) => {
-                self.remote_node_tx
-                    .clone()
-                    .send(QueryNodeForReply {
-                              node_id: next_id,
-                              query_for_reply: QueryForReply::Delete(query, reply_tx),
-                          })
-                    .map_err(|_| ())
-                    .into_future()
-                    .map(|_| ())
-                    .boxed()
-            }
+            Ok(answer) => QueryResult::Answer(answer),
+            Err(next_id) => QueryResult::Node(next_id),
         }
     }
 }

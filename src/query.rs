@@ -9,7 +9,7 @@ pub enum Query<I, T>
     where I: NodeId,
           T: Clone + Debug
 {
-    Meta(MetaQuery),
+    Meta,
     Precede(PrecedeQuery<I>),
     Owner(OwnerQuery<I>),
     Exists(ExistsQuery<I>),
@@ -18,28 +18,34 @@ pub enum Query<I, T>
     Delete(DeleteQuery<I>),
 }
 
-pub enum QueryForReply<I, T>
+pub enum QueryResult<I, T>
     where I: NodeId,
           T: Clone + Debug
 {
-    Meta(MetaQuery, oneshot::Sender<NodeMeta<I>>),
-    Owner(OwnerQuery<I>, oneshot::Sender<I>),
-    Precede(PrecedeQuery<I>, oneshot::Sender<PrecedeReply<I, T>>),
-    Exists(ExistsQuery<I>, oneshot::Sender<bool>),
-    Get(GetQuery<I>, oneshot::Sender<Option<T>>),
-    Set(SetQuery<I, T>, oneshot::Sender<()>),
-    Delete(DeleteQuery<I>, oneshot::Sender<bool>),
+    Answer(T),
+    Node(I),
 }
 
-pub struct QueryNodeForReply<I, T>
-    where I: NodeId,
-          T: Clone + Debug
-{
-    pub node_id: I,
-    pub query_for_reply: QueryForReply<I, T>,
-}
+// pub enum QueryForReply<I, T>
+//     where I: NodeId,
+//           T: Clone + Debug
+// {
+//     Meta(MetaQuery, oneshot::Sender<NodeMeta<I>>),
+//     Owner(OwnerQuery<I>, oneshot::Sender<I>),
+//     Precede(PrecedeQuery<I>, oneshot::Sender<PrecedeReply<I, T>>),
+//     Exists(ExistsQuery<I>, oneshot::Sender<bool>),
+//     Get(GetQuery<I>, oneshot::Sender<Option<T>>),
+//     Set(SetQuery<I, T>, oneshot::Sender<()>),
+//     Delete(DeleteQuery<I>, oneshot::Sender<bool>),
+// }
 
-pub struct MetaQuery;
+// pub struct QueryNodeForReply<I, T>
+//     where I: NodeId,
+//           T: Clone + Debug
+// {
+//     pub node_id: I,
+//     pub query_for_reply: QueryForReply<I, T>,
+// }
 
 pub struct OwnerQuery<I>
     where I: NodeId

@@ -2,6 +2,7 @@
 #![feature(plugin)]
 #![plugin(tarpc_plugins)]
 #![feature(slice_patterns)]
+#![feature(box_syntax)]
 
 extern crate csv;
 #[macro_use]

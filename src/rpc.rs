@@ -1,7 +1,12 @@
 use std::net::SocketAddr;
 use std::cmp::Ordering;
-use futures::{Future, Sink};
+use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
+use futures::{future, Future, Sink};
 use futures::sync::{mpsc, oneshot};
+use tarpc::future::{client, server};
+use tarpc::future::client::ClientExt;
+use futures::future::Either;
 use super::*;
 
 pub type Key = [u32; 5];
@@ -52,7 +57,9 @@ impl From<SocketAddr> for Id {
 service! {
     rpc meta() -> NodeMeta<Id> | bool;
     rpc owner(key: Key) -> Id | bool;
+    rpc join(existing_node_id: Id) -> bool | bool;
     rpc precede(predecessor_id: Id) -> PrecedeReply<Id, Definition> | bool;
+    rpc succeed(successor_id: Id) -> bool | bool;
     rpc exists(key: Key) -> bool | bool;
     rpc get(key: Key) -> Option<Definition> | bool;
     rpc set(key: Key, value: Definition) -> () | bool;
@@ -61,76 +68,175 @@ service! {
 
 #[derive(Clone)]
 pub struct ChordServer {
-    query_tx: mpsc::Sender<QueryForReply<Id, Definition>>,
+    query_engine: QueryEngine<Id, Definition>,
+    client_pool: Arc<Mutex<HashMap<Id, FutureClient>>>,
 }
 
 impl ChordServer {
-    pub fn new(query_tx: mpsc::Sender<QueryForReply<Id, Definition>>) -> ChordServer {
-        ChordServer { query_tx }
+    pub fn new(query_engine: QueryEngine<Id, Definition>) -> ChordServer {
+        ChordServer {
+            query_engine: query_engine,
+            client_pool: Arc::new(Mutex::new(HashMap::new())),
+        }
     }
 
-    fn query<R>(&self,
-                query: QueryForReply<Id, Definition>,
-                reply_rx: oneshot::Receiver<R>)
-                -> Box<Future<Item = R, Error = bool>>
-        where R: Send + 'static
-    {
-        self.query_tx
+    fn client(&self, id: Id) -> FutureClient {
+        let mut client_pool = self.client_pool.lock().unwrap();
+        client_pool
+            .entry(id)
+            .or_insert_with(|| {
+                                FutureClient::connect(id.addr, client::Options::default())
+                                    .wait()
+                                    .unwrap()
+                            })
             .clone()
-            .send(query)
-            .map_err(|_| false)
-            .and_then(|_| reply_rx.map_err(|_| false))
-            .boxed()
     }
 }
 
 impl FutureService for ChordServer {
     type MetaFut = Box<Future<Item = NodeMeta<Id>, Error = bool>>;
     type OwnerFut = Box<Future<Item = Id, Error = bool>>;
+    type JoinFut = Box<Future<Item = bool, Error = bool>>;
     type PrecedeFut = Box<Future<Item = PrecedeReply<Id, Definition>, Error = bool>>;
+    type SucceedFut = Box<Future<Item = bool, Error = bool>>;
     type ExistsFut = Box<Future<Item = bool, Error = bool>>;
     type GetFut = Box<Future<Item = Option<Definition>, Error = bool>>;
     type SetFut = Box<Future<Item = (), Error = bool>>;
     type DeleteFut = Box<Future<Item = bool, Error = bool>>;
 
     fn meta(&self) -> Self::MetaFut {
-        let (reply_tx, reply_rx) = oneshot::channel();
-        self.query(QueryForReply::Meta(MetaQuery, reply_tx), reply_rx)
+        box match self.query_engine.meta() {
+                QueryResult::Answer(answer) => Either::A(future::ok(answer)),
+                QueryResult::Node(node_id) => {
+                    Either::B(self.client(node_id)
+                                  .meta()
+                                  .map_err(|e| {
+                                               println!("{:?}", e);
+                                               false
+                                           }))
+                }
+            }
     }
 
     fn owner(&self, key: Key) -> Self::OwnerFut {
         let query = OwnerQuery { key };
-        let (reply_tx, reply_rx) = oneshot::channel();
-        self.query(QueryForReply::Owner(query, reply_tx), reply_rx)
+        box match self.query_engine.owner(query) {
+                QueryResult::Answer(answer) => Either::A(future::ok(answer)),
+                QueryResult::Node(node_id) => {
+                    Either::B(self.client(node_id)
+                                  .owner(key)
+                                  .map_err(|e| {
+                                               println!("{:?}", e);
+                                               false
+                                           }))
+                }
+            }
     }
 
-    fn precede(&self, id: Id) -> Self::PrecedeFut {
-        let query = PrecedeQuery { id };
-        let (reply_tx, reply_rx) = oneshot::channel();
-        self.query(QueryForReply::Precede(query, reply_tx), reply_rx)
+    fn join(&self, existing_node_id: Id) -> Self::JoinFut {
+        let mut node = self.query_engine.local_node.write().unwrap();
+        let precede_reply = self.client(existing_node_id)
+            .precede(node.meta.id)
+            .wait()
+            .unwrap();
+        node.apply_precede_reply(precede_reply);
+        box future::ok(true)
+    }
+
+    fn precede(&self, predecessor_id: Id) -> Self::PrecedeFut {
+        let query = PrecedeQuery { id: predecessor_id };
+        box match self.query_engine.precede(query) {
+                QueryResult::Answer(answer) => {
+            if answer.predecessor_id != answer.successor_id {
+                self.client(answer.predecessor_id)
+                    .succeed(predecessor_id)
+                    .wait()
+                    .unwrap();
+            }
+            Either::A(future::ok(answer))
+        }
+                QueryResult::Node(node_id) => {
+                    Either::B(self.client(node_id)
+                                  .precede(predecessor_id)
+                                  .map_err(|e| {
+                                               println!("{:?}", e);
+                                               false
+                                           }))
+                }
+            }
+    }
+
+    fn succeed(&self, successor_id: Id) -> Self::JoinFut {
+        let mut node = self.query_engine.local_node.write().unwrap();
+        box match node.meta.relations.as_mut() {
+                Some(ref mut relations) => {
+            relations.successor_id = successor_id;
+            future::ok(true)
+        }
+                None => future::err(false),
+            }
     }
 
     fn exists(&self, key: Key) -> Self::ExistsFut {
         let query = ExistsQuery { key };
-        let (reply_tx, reply_rx) = oneshot::channel();
-        self.query(QueryForReply::Exists(query, reply_tx), reply_rx)
+        box match self.query_engine.exists(query) {
+                QueryResult::Answer(answer) => Either::A(future::ok(answer)),
+                QueryResult::Node(node_id) => {
+                    Either::B(self.client(node_id)
+                                  .exists(key)
+                                  .map_err(|e| {
+                                               println!("{:?}", e);
+                                               false
+                                           }))
+                }
+            }
     }
 
     fn get(&self, key: Key) -> Self::GetFut {
         let query = GetQuery { key };
-        let (reply_tx, reply_rx) = oneshot::channel();
-        self.query(QueryForReply::Get(query, reply_tx), reply_rx)
+        box match self.query_engine.get(query) {
+                QueryResult::Answer(answer) => Either::A(future::ok(answer)),
+                QueryResult::Node(node_id) => {
+                    Either::B(self.client(node_id)
+                                  .get(key)
+                                  .map_err(|e| {
+                                               println!("{:?}", e);
+                                               false
+                                           }))
+                }
+            }
     }
 
     fn set(&self, key: Key, value: Definition) -> Self::SetFut {
-        let query = SetQuery { key, value };
-        let (reply_tx, reply_rx) = oneshot::channel();
-        self.query(QueryForReply::Set(query, reply_tx), reply_rx)
+        let query = SetQuery {
+            key: key,
+            value: value.clone(),
+        };
+        box match self.query_engine.set(query) {
+                QueryResult::Answer(answer) => Either::A(future::ok(answer)),
+                QueryResult::Node(node_id) => {
+                    Either::B(self.client(node_id)
+                                  .set(key, value)
+                                  .map_err(|e| {
+                                               println!("{:?}", e);
+                                               false
+                                           }))
+                }
+            }
     }
 
     fn delete(&self, key: Key) -> Self::DeleteFut {
         let query = DeleteQuery { key };
-        let (reply_tx, reply_rx) = oneshot::channel();
-        self.query(QueryForReply::Delete(query, reply_tx), reply_rx)
+        box match self.query_engine.delete(query) {
+                QueryResult::Answer(answer) => Either::A(future::ok(answer)),
+                QueryResult::Node(node_id) => {
+                    Either::B(self.client(node_id)
+                                  .delete(key)
+                                  .map_err(|e| {
+                                               println!("{:?}", e);
+                                               false
+                                           }))
+                }
+            }
     }
 }
