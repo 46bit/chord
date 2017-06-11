@@ -91,28 +91,28 @@ fn main() {
         println!();
     }
 
-    let definitions = definitions_from_stdin();
-    println!("3");
+    // let definitions = definitions_from_stdin();
+    // println!("3");
 
-    let mut n = 0;
-    for (key, definition) in definitions.clone() {
-        let node_clients_vec = node_clients.values().collect::<Vec<_>>();
-        let node_client = rng.choose(&node_clients_vec).cloned().unwrap();
-        node_client.set(key, definition.clone()).wait().unwrap();
-        // match node_client.get(key).wait().unwrap() {
-        //     Some(gotten_definition) => {
-        //         assert_eq!(gotten_definition, definition);
-        //     }
-        //     None => {
-        //         unreachable!();
-        //     }
-        // }
-        n += 1;
+    // let mut n = 0;
+    // for (key, definition) in definitions.clone() {
+    //     let node_clients_vec = node_clients.values().collect::<Vec<_>>();
+    //     let node_client = rng.choose(&node_clients_vec).cloned().unwrap();
+    //     node_client.set(key, definition.clone()).wait().unwrap();
+    //     // match node_client.get(key).wait().unwrap() {
+    //     //     Some(gotten_definition) => {
+    //     //         assert_eq!(gotten_definition, definition);
+    //     //     }
+    //     //     None => {
+    //     //         unreachable!();
+    //     //     }
+    //     // }
+    //     n += 1;
 
-        if n % 1000 == 0 {
-            println!("n = {:?}", n);
-        }
-    }
+    //     if n % 1000 == 0 {
+    //         println!("n = {:?}", n);
+    //     }
+    // }
 
     println!("done");
 

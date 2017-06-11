@@ -12,6 +12,7 @@ extern crate rand;
 #[macro_use]
 extern crate tarpc;
 extern crate futures;
+extern crate tokio_core;
 
 use std::io;
 
@@ -19,6 +20,7 @@ mod rpc;
 mod node;
 mod query;
 mod query_engine;
+pub mod utils;
 
 pub use rpc::*;
 pub use node::*;

@@ -1,7 +1,5 @@
 use std::fmt::Debug;
 use std::sync::{Arc, RwLock};
-use futures::{Future, IntoFuture, BoxFuture, Sink};
-use futures::sync::{mpsc, oneshot};
 use super::*;
 
 #[derive(Clone)]

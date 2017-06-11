@@ -1,6 +1,5 @@
 use std::fmt::Debug;
 use std::collections::HashMap;
-use futures::sync::oneshot;
 use super::*;
 
 // query engine, resolver, database,
