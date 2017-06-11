@@ -84,9 +84,12 @@ impl ChordServer {
         client_pool
             .entry(id)
             .or_insert_with(|| {
-                                FutureClient::connect(id.addr, client::Options::default())
+                                println!("^^^ {:?}", id.addr);
+                                let c = FutureClient::connect(id.addr, client::Options::default())
                                     .wait()
-                                    .unwrap()
+                                    .unwrap();
+                                println!("___ {:?}", id.addr);
+                                c
                             })
             .clone()
     }

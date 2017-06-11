@@ -94,9 +94,11 @@ impl<I, T> QueryEngine<I, T>
     }
 
     pub fn set(&self, query: SetQuery<I, T>) -> QueryResult<I, ()> {
+        println!("s");
         let mut local_node = self.local_node
             .write()
             .expect("Could not acquire node.");
+        println!("t");
         match local_node.set(query.key, query.value.clone()) {
             Ok(()) => QueryResult::Answer(()),
             Err(next_id) => QueryResult::Node(next_id),
