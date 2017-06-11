@@ -90,7 +90,10 @@ fn main() {
         if let Ok(meta) = utils::wait_timeout(client.meta(), Duration::from_secs(1)) {
             //println!("{:?}", meta);
         }
-        if let Ok(delete) = utils::wait_timeout(client.exists([3387451404, 2239804246, 3566425740, 2864059721, 3427156997]), Duration::from_secs(1)) {
+        if let Ok(delete) = utils::wait_timeout(client.exists([3387451404, 2239804246,
+                                                               3566425740, 2864059721,
+                                                               3427156997]),
+                                                Duration::from_secs(1)) {
             println!("{:?}", delete);
         }
 

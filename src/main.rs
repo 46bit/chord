@@ -33,11 +33,15 @@ fn node(i: usize) -> (Id, FutureClient) {
         let (_, server) = chord_server
             .listen(addr, &reactor.handle(), server::Options::default())
             .unwrap();
-        reactor.handle().spawn(server.map(|v| {
-            println!("server ended ok: {:?}", v);
-        }).map_err(|e| {
-            println!("server ended err: {:?}", e);
-        }));
+        reactor
+            .handle()
+            .spawn(server
+                       .map(|v| {
+                                println!("server ended ok: {:?}", v);
+                            })
+                       .map_err(|e| {
+                                    println!("server ended err: {:?}", e);
+                                }));
         tx.send(node_id).unwrap();
         loop {
             reactor.turn(None)

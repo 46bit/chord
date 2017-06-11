@@ -210,6 +210,7 @@ impl FutureService for ChordServer {
     }
 
     fn set(&self, key: Key, value: Definition) -> Self::SetFut {
+        println!("set {:?} on {:?}", key, self.meta().wait().unwrap().id.addr);
         let query = SetQuery {
             key: key,
             value: value.clone(),
@@ -217,13 +218,18 @@ impl FutureService for ChordServer {
         box match self.query_engine.set(query) {
                 QueryResult::Answer(answer) => Either::A(future::ok(answer)),
                 QueryResult::Node(node_id) => {
-                    Either::B(self.client(node_id)
-                                  .set(key, value)
-                                  .map_err(|e| {
-                                               println!("{:?}", e);
-                                               false
-                                           }))
-                }
+            println!("set {:?} forwarding to {:?}", key, node_id.addr);
+            Either::B(self.client(node_id)
+                          .set(key, value)
+                          .map(move |v| {
+                                   println!("set {:?} forwarded to {:?}", key, node_id.addr);
+                                   v
+                               })
+                          .map_err(|e| {
+                                       println!("{:?}", e);
+                                       false
+                                   }))
+        }
             }
     }
 

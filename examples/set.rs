@@ -129,7 +129,7 @@ fn main() {
                          })
         })
         .buffer_unordered(number_of_nodes * 4)
-        .map(move |(id,r)| {
+        .map(move |(id, r)| {
                  //println!("r {:?} {:?}", id.addr, r);
                  i += 1;
                  if i % 1000 == 0 {
