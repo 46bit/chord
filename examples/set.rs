@@ -80,7 +80,7 @@ fn main() {
     let mut node_clients = HashMap::new();
     for i in 1..number_of_nodes {
         //213.138.101.13
-        let addr: SocketAddr = format!("0.0.0.0:{:?}", 4646 + i).parse().unwrap();
+        let addr: SocketAddr = format!("213.138.101.13:{:?}", 4646 + i).parse().unwrap();
         let node_id = Id::from(addr);
         println!("{:?}", node_id);
 
