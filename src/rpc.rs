@@ -100,11 +100,11 @@ impl ChordServer {
         client_pool
             .entry(id)
             .or_insert_with(|| {
-                                println!("^^^ {:?}", id.addr);
+                                //println!("^^^ {:?}", id.addr);
                                 let c = FutureClient::connect(id.addr, client::Options::default())
                                     .wait()
                                     .unwrap();
-                                println!("___ {:?}", id.addr);
+                                //println!("___ {:?}", id.addr);
                                 c
                             })
             .clone()
@@ -130,7 +130,7 @@ impl FutureService for ChordServer {
                                   .timeout(self.client(node_id)
                                                .meta()
                                                .map_err(|e| {
-                                                            println!("{:?}", e);
+                                                            //println!("{:?}", e);
                                                             TimeoutErr::FutureErr(false)
                                                         }),
                                            Duration::from_secs(8)))
@@ -147,7 +147,7 @@ impl FutureService for ChordServer {
                                   .timeout(self.client(node_id)
                                                .owner(key)
                                                .map_err(|e| {
-                                                            println!("{:?}", e);
+                                                            //println!("{:?}", e);
                                                             TimeoutErr::FutureErr(false)
                                                         }),
                                            Duration::from_secs(8)))
@@ -182,7 +182,7 @@ impl FutureService for ChordServer {
                                   .timeout(self.client(node_id)
                                                .precede(predecessor_id)
                                                .map_err(|e| {
-                                                            println!("{:?}", e);
+                                                            //println!("{:?}", e);
                                                             TimeoutErr::FutureErr(false)
                                                         }),
                                            Duration::from_secs(8)))
@@ -210,7 +210,7 @@ impl FutureService for ChordServer {
                                   .timeout(self.client(node_id)
                                                .exists(key)
                                                .map_err(|e| {
-                                                            println!("{:?}", e);
+                                                            //println!("{:?}", e);
                                                             TimeoutErr::FutureErr(false)
                                                         }),
                                            Duration::from_secs(8)))
@@ -227,7 +227,7 @@ impl FutureService for ChordServer {
                                   .timeout(self.client(node_id)
                                                .get(key)
                                                .map_err(|e| {
-                                                            println!("{:?}", e);
+                                                            //println!("{:?}", e);
                                                             TimeoutErr::FutureErr(false)
                                                         }),
                                            Duration::from_secs(8)))
@@ -236,7 +236,7 @@ impl FutureService for ChordServer {
     }
 
     fn set(&self, key: Key, value: Definition) -> Self::SetFut {
-        println!("set {:?} on {:?}", key, self.meta().wait().unwrap().id.addr);
+        //println!("set {:?} on {:?}", key, self.meta().wait().unwrap().id.addr);
         let query = SetQuery {
             key: key,
             value: value.clone(),
@@ -244,18 +244,18 @@ impl FutureService for ChordServer {
         box match self.query_engine.set(query) {
                 QueryResult::Answer(answer) => Either::A(future::ok(answer)),
                 QueryResult::Node(node_id) => {
-            println!("set {:?} forwarding to {:?}", key, node_id.addr);
+            //println!("set {:?} forwarding to {:?}", key, node_id.addr);
             Either::B(self.timer
                           .timeout(self.client(node_id)
                                        .set(key, value)
                                        .map(move |v| {
-                                                println!("set {:?} forwarded to {:?}",
-                                                         key,
-                                                         node_id.addr);
+                                                //println!("set {:?} forwarded to {:?}",
+                                                //         key,
+                                                //         node_id.addr);
                                                 v
                                             })
                                        .map_err(|e| {
-                                                    println!("{:?}", e);
+                                                    //println!("{:?}", e);
                                                     TimeoutErr::FutureErr(false)
                                                 }), Duration::from_secs(8))
                       )
@@ -272,7 +272,7 @@ impl FutureService for ChordServer {
                                   .timeout(self.client(node_id)
                                                .delete(key)
                                                .map_err(|e| {
-                                                            println!("{:?}", e);
+                                                            //println!("{:?}", e);
                                                             TimeoutErr::FutureErr(false)
                                                         }),
                                            Duration::from_secs(8)))
