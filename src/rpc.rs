@@ -2,10 +2,12 @@ use std::net::SocketAddr;
 use std::cmp::Ordering;
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
+use std::time::Duration;
 use futures::{future, Future};
 use tarpc::future::client;
 use tarpc::future::client::ClientExt;
 use futures::future::Either;
+use tokio_timer::*;
 use super::*;
 
 pub type Key = [u32; 5];
@@ -53,22 +55,35 @@ impl From<SocketAddr> for Id {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub enum TimeoutErr<E> {
+    FutureErr(E),
+    TimedOut,
+}
+
+impl<E, F> From<TimeoutError<F>> for TimeoutErr<E> {
+    fn from(_: TimeoutError<F>) -> TimeoutErr<E> {
+        TimeoutErr::TimedOut
+    }
+}
+
 service! {
-    rpc meta() -> NodeMeta<Id> | bool;
-    rpc owner(key: Key) -> Id | bool;
+    rpc meta() -> NodeMeta<Id> | TimeoutErr<bool>;
+    rpc owner(key: Key) -> Id | TimeoutErr<bool>;
     rpc join(existing_node_id: Id) -> bool | bool;
-    rpc precede(predecessor_id: Id) -> PrecedeReply<Id, Definition> | bool;
+    rpc precede(predecessor_id: Id) -> PrecedeReply<Id, Definition> | TimeoutErr<bool>;
     rpc succeed(successor_id: Id) -> bool | bool;
-    rpc exists(key: Key) -> bool | bool;
-    rpc get(key: Key) -> Option<Definition> | bool;
-    rpc set(key: Key, value: Definition) -> () | bool;
-    rpc delete(key: Key) -> bool | bool;
+    rpc exists(key: Key) -> bool | TimeoutErr<bool>;
+    rpc get(key: Key) -> Option<Definition> | TimeoutErr<bool>;
+    rpc set(key: Key, value: Definition) -> () | TimeoutErr<bool>;
+    rpc delete(key: Key) -> bool | TimeoutErr<bool>;
 }
 
 #[derive(Clone)]
 pub struct ChordServer {
     query_engine: QueryEngine<Id, Definition>,
     client_pool: Arc<Mutex<HashMap<Id, FutureClient>>>,
+    timer: Timer,
 }
 
 impl ChordServer {
@@ -76,6 +91,7 @@ impl ChordServer {
         ChordServer {
             query_engine: query_engine,
             client_pool: Arc::new(Mutex::new(HashMap::new())),
+            timer: Timer::default(),
         }
     }
 
@@ -96,26 +112,28 @@ impl ChordServer {
 }
 
 impl FutureService for ChordServer {
-    type MetaFut = Box<Future<Item = NodeMeta<Id>, Error = bool>>;
-    type OwnerFut = Box<Future<Item = Id, Error = bool>>;
+    type MetaFut = Box<Future<Item = NodeMeta<Id>, Error = TimeoutErr<bool>>>;
+    type OwnerFut = Box<Future<Item = Id, Error = TimeoutErr<bool>>>;
     type JoinFut = Box<Future<Item = bool, Error = bool>>;
-    type PrecedeFut = Box<Future<Item = PrecedeReply<Id, Definition>, Error = bool>>;
+    type PrecedeFut = Box<Future<Item = PrecedeReply<Id, Definition>, Error = TimeoutErr<bool>>>;
     type SucceedFut = Box<Future<Item = bool, Error = bool>>;
-    type ExistsFut = Box<Future<Item = bool, Error = bool>>;
-    type GetFut = Box<Future<Item = Option<Definition>, Error = bool>>;
-    type SetFut = Box<Future<Item = (), Error = bool>>;
-    type DeleteFut = Box<Future<Item = bool, Error = bool>>;
+    type ExistsFut = Box<Future<Item = bool, Error = TimeoutErr<bool>>>;
+    type GetFut = Box<Future<Item = Option<Definition>, Error = TimeoutErr<bool>>>;
+    type SetFut = Box<Future<Item = (), Error = TimeoutErr<bool>>>;
+    type DeleteFut = Box<Future<Item = bool, Error = TimeoutErr<bool>>>;
 
     fn meta(&self) -> Self::MetaFut {
         box match self.query_engine.meta() {
                 QueryResult::Answer(answer) => Either::A(future::ok(answer)),
                 QueryResult::Node(node_id) => {
-                    Either::B(self.client(node_id)
-                                  .meta()
-                                  .map_err(|e| {
-                                               println!("{:?}", e);
-                                               false
-                                           }))
+                    Either::B(self.timer
+                                  .timeout(self.client(node_id)
+                                               .meta()
+                                               .map_err(|e| {
+                                                            println!("{:?}", e);
+                                                            TimeoutErr::FutureErr(false)
+                                                        }),
+                                           Duration::from_secs(8)))
                 }
             }
     }
@@ -125,12 +143,14 @@ impl FutureService for ChordServer {
         box match self.query_engine.owner(query) {
                 QueryResult::Answer(answer) => Either::A(future::ok(answer)),
                 QueryResult::Node(node_id) => {
-                    Either::B(self.client(node_id)
-                                  .owner(key)
-                                  .map_err(|e| {
-                                               println!("{:?}", e);
-                                               false
-                                           }))
+                    Either::B(self.timer
+                                  .timeout(self.client(node_id)
+                                               .owner(key)
+                                               .map_err(|e| {
+                                                            println!("{:?}", e);
+                                                            TimeoutErr::FutureErr(false)
+                                                        }),
+                                           Duration::from_secs(8)))
                 }
             }
     }
@@ -158,12 +178,14 @@ impl FutureService for ChordServer {
             Either::A(future::ok(answer))
         }
                 QueryResult::Node(node_id) => {
-                    Either::B(self.client(node_id)
-                                  .precede(predecessor_id)
-                                  .map_err(|e| {
-                                               println!("{:?}", e);
-                                               false
-                                           }))
+                    Either::B(self.timer
+                                  .timeout(self.client(node_id)
+                                               .precede(predecessor_id)
+                                               .map_err(|e| {
+                                                            println!("{:?}", e);
+                                                            TimeoutErr::FutureErr(false)
+                                                        }),
+                                           Duration::from_secs(8)))
                 }
             }
     }
@@ -184,12 +206,14 @@ impl FutureService for ChordServer {
         box match self.query_engine.exists(query) {
                 QueryResult::Answer(answer) => Either::A(future::ok(answer)),
                 QueryResult::Node(node_id) => {
-                    Either::B(self.client(node_id)
-                                  .exists(key)
-                                  .map_err(|e| {
-                                               println!("{:?}", e);
-                                               false
-                                           }))
+                    Either::B(self.timer
+                                  .timeout(self.client(node_id)
+                                               .exists(key)
+                                               .map_err(|e| {
+                                                            println!("{:?}", e);
+                                                            TimeoutErr::FutureErr(false)
+                                                        }),
+                                           Duration::from_secs(8)))
                 }
             }
     }
@@ -199,12 +223,14 @@ impl FutureService for ChordServer {
         box match self.query_engine.get(query) {
                 QueryResult::Answer(answer) => Either::A(future::ok(answer)),
                 QueryResult::Node(node_id) => {
-                    Either::B(self.client(node_id)
-                                  .get(key)
-                                  .map_err(|e| {
-                                               println!("{:?}", e);
-                                               false
-                                           }))
+                    Either::B(self.timer
+                                  .timeout(self.client(node_id)
+                                               .get(key)
+                                               .map_err(|e| {
+                                                            println!("{:?}", e);
+                                                            TimeoutErr::FutureErr(false)
+                                                        }),
+                                           Duration::from_secs(8)))
                 }
             }
     }
@@ -219,16 +245,20 @@ impl FutureService for ChordServer {
                 QueryResult::Answer(answer) => Either::A(future::ok(answer)),
                 QueryResult::Node(node_id) => {
             println!("set {:?} forwarding to {:?}", key, node_id.addr);
-            Either::B(self.client(node_id)
-                          .set(key, value)
-                          .map(move |v| {
-                                   println!("set {:?} forwarded to {:?}", key, node_id.addr);
-                                   v
-                               })
-                          .map_err(|e| {
-                                       println!("{:?}", e);
-                                       false
-                                   }))
+            Either::B(self.timer
+                          .timeout(self.client(node_id)
+                                       .set(key, value)
+                                       .map(move |v| {
+                                                println!("set {:?} forwarded to {:?}",
+                                                         key,
+                                                         node_id.addr);
+                                                v
+                                            })
+                                       .map_err(|e| {
+                                                    println!("{:?}", e);
+                                                    TimeoutErr::FutureErr(false)
+                                                }), Duration::from_secs(8))
+                      )
         }
             }
     }
@@ -238,12 +268,14 @@ impl FutureService for ChordServer {
         box match self.query_engine.delete(query) {
                 QueryResult::Answer(answer) => Either::A(future::ok(answer)),
                 QueryResult::Node(node_id) => {
-                    Either::B(self.client(node_id)
-                                  .delete(key)
-                                  .map_err(|e| {
-                                               println!("{:?}", e);
-                                               false
-                                           }))
+                    Either::B(self.timer
+                                  .timeout(self.client(node_id)
+                                               .delete(key)
+                                               .map_err(|e| {
+                                                            println!("{:?}", e);
+                                                            TimeoutErr::FutureErr(false)
+                                                        }),
+                                           Duration::from_secs(8)))
                 }
             }
     }
