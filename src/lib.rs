@@ -33,33 +33,37 @@ pub use query_engine::*;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Definition {
     #[serde(rename = "defid")]
-    urban_id: u64,
+    pub urban_id: u64,
     #[serde(rename = "word")]
-    term: String,
+    pub term: String,
     #[serde(rename = "entry")]
-    canonical_term: String,
-    definition: String,
-    author: String,
-    example: String,
-    thumbs_up: u64,
-    thumbs_down: u64,
+    pub canonical_term: String,
+    pub definition: String,
+    pub author: String,
+    pub example: String,
+    pub thumbs_up: u64,
+    pub thumbs_down: u64,
 }
 
 impl Definition {
     pub fn canonical_hash(&self) -> [u32; 5] {
-        let mut m = sha1::Sha1::new();
-        m.update(self.canonical_term.as_bytes());
-        let u8_20 = m.digest().bytes();
-        let mut u32s = [0; 5];
-        for i in 0..5 {
-            let mut u32_: u32 = u8_20[i * 4] as u32;
-            u32_ = (u32_ << 8) | (u8_20[i * 4 + 1] as u32);
-            u32_ = (u32_ << 8) | (u8_20[i * 4 + 2] as u32);
-            u32_ = (u32_ << 8) | (u8_20[i * 4 + 3] as u32);
-            u32s[i] = u32_;
-        }
-        u32s
+        canonical_hash(self.canonical_term.clone())
     }
+}
+
+pub fn canonical_hash(s: String) -> [u32; 5] {
+    let mut m = sha1::Sha1::new();
+    m.update(s.as_bytes());
+    let u8_20 = m.digest().bytes();
+    let mut u32s = [0; 5];
+    for i in 0..5 {
+        let mut u32_: u32 = u8_20[i * 4] as u32;
+        u32_ = (u32_ << 8) | (u8_20[i * 4 + 1] as u32);
+        u32_ = (u32_ << 8) | (u8_20[i * 4 + 2] as u32);
+        u32_ = (u32_ << 8) | (u8_20[i * 4 + 3] as u32);
+        u32s[i] = u32_;
+    }
+    u32s
 }
 
 impl From<Definition> for (Key, Definition) {
