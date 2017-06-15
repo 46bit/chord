@@ -16,6 +16,7 @@ extern crate tokio_core;
 extern crate tokio_timer;
 
 use std::io;
+use std::collections::HashMap;
 
 mod rpc;
 mod node;
@@ -72,14 +73,23 @@ impl From<Definition> for (Key, Definition) {
     }
 }
 
-pub fn definitions_from_stdin() -> Vec<(Key, Definition)> {
+pub fn definitions_from_stdin() -> HashMap<Key, Definition> {
     let mut rdr = csv::Reader::from_reader(io::stdin());
     let des: csv::DeserializeRecordsIter<_, Definition> = rdr.deserialize();
 
-    let mut definitions = Vec::new();
+    let mut definitions: HashMap<Key, Definition> = HashMap::new();
     for result in des {
         if let Ok(definition) = result {
-            definitions.push(definition.into());
+            let (key, definition) = definition.into();
+            if definitions.contains_key(&key) {
+                let existing_score = (definitions[&key].thumbs_up as isize) -
+                                     (definitions[&key].thumbs_down as isize);
+                let new_score = (definition.thumbs_up as isize) - (definition.thumbs_down as isize);
+                if new_score <= existing_score {
+                    continue;
+                }
+            }
+            definitions.insert(key, definition);
         }
     }
     definitions

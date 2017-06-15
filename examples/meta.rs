@@ -79,7 +79,7 @@ fn main() {
 
     for i in 1..number_of_nodes {
         //213.138.101.13
-        let addr: SocketAddr = format!("0.0.0.0:{:?}", 4646 + i).parse().unwrap();
+        let addr: SocketAddr = format!("213.138.101.13:{:?}", 4646 + i).parse().unwrap();
         let node_id = Id::from(addr);
         println!("{:?}", node_id);
 
@@ -88,14 +88,14 @@ fn main() {
         let client = client_future.wait().unwrap();
 
         if let Ok(meta) = utils::wait_timeout(client.meta(), Duration::from_secs(1)) {
-            //println!("{:?}", meta);
+            println!("{:?}", meta);
         }
-        if let Ok(delete) = utils::wait_timeout(client.exists([3387451404, 2239804246,
-                                                               3566425740, 2864059721,
-                                                               3427156997]),
-                                                Duration::from_secs(1)) {
-            println!("{:?}", delete);
-        }
+        // if let Ok(delete) = utils::wait_timeout(client.exists([3387451404, 2239804246,
+        //                                                        3566425740, 2864059721,
+        //                                                        3427156997]),
+        //                                         Duration::from_secs(1)) {
+        //     println!("{:?}", delete);
+        // }
 
         //node_clients.insert(node_id, client);
         // let client_options = client::Options::default().handle(handle.clone());
