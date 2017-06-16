@@ -1,26 +1,3 @@
-#![feature(inclusive_range_syntax)]
-#![feature(plugin)]
-#![plugin(tarpc_plugins)]
-#![feature(slice_patterns)]
-
-// extern crate csv;
-// extern crate sha1;
-// extern crate rand;
-// extern crate tarpc;
-// extern crate chord;
-
-// use std::time::Duration;
-// use std::collections::HashMap;
-// use std::sync::mpsc as stdmpsc;
-// use std::thread;
-// use std::net::SocketAddr;
-// use tarpc::future::{client, server};
-// use tarpc::future::client::ClientExt;
-// use tarpc::futures::Future;
-// use tarpc::tokio_core::reactor;
-// use rand::{Rng, StdRng};
-// use chord::*;
-
 extern crate tarpc;
 extern crate chord;
 
@@ -54,14 +31,15 @@ fn main() {
     let joiner = node_client
         .map_err(|_| ())
         .and_then(move |c| {
-            c.rename(Id::from(server_handle.addr()))
+            let rename = c.rename(Id::from(server_handle.addr()))
                 .map_err(|e| {
                              println!("not renamed {:?}", e);
-                         })
-                .join(c.join(base_node_id)
-                          .map_err(|e| {
-                                       println!("not joined {:?}", e);
-                                   }))
+                         });
+            let join = c.join(base_node_id)
+                .map_err(|e| {
+                             println!("not joined {:?}", e);
+                         });
+            rename.and_then(join)
         })
         .map(|_| {
                  println!("joined!");
